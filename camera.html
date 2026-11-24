@@ -1,0 +1,379 @@
+
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport"
+        content="width=device-width, initial-scale=1">
+
+  <title>กล้องถ่ายภาพยืนยันการเข้าฝึก</title>
+
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      padding: 20px;
+      font-family: Arial, sans-serif;
+      background: #f1f5f9;
+      color: #1e293b;
+    }
+
+    .container {
+      max-width: 520px;
+      margin: 20px auto;
+      padding: 22px;
+      background: white;
+      border-radius: 16px;
+      box-shadow: 0 4px 15px #00000012;
+      text-align: center;
+    }
+
+    h2 {
+      color: #1d4ed8;
+      margin-top: 0;
+    }
+
+    .description {
+      color: #64748b;
+      font-size: 14px;
+      line-height: 1.6;
+    }
+
+    video, canvas {
+      width: 100%;
+      max-height: 65vh;
+      object-fit: contain;
+      background: #0f172a;
+      border-radius: 12px;
+      margin-top: 12px;
+    }
+
+    .hidden {
+      display: none !important;
+    }
+
+    button {
+      width: 100%;
+      padding: 14px;
+      margin-top: 12px;
+      border: 0;
+      border-radius: 10px;
+      font-size: 16px;
+      font-weight: bold;
+      cursor: pointer;
+    }
+
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .primary {
+      background: #2563eb;
+      color: white;
+    }
+
+    .success {
+      background: #16a34a;
+      color: white;
+    }
+
+    .secondary {
+      background: #e2e8f0;
+      color: #1e293b;
+    }
+
+    #status {
+      margin-top: 14px;
+      padding: 12px;
+      border-radius: 8px;
+      background: #eff6ff;
+      color: #1d4ed8;
+      font-size: 14px;
+      line-height: 1.5;
+      overflow-wrap: anywhere;
+    }
+
+    #status.error {
+      background: #fee2e2;
+      color: #b91c1c;
+    }
+
+    #status.success {
+      background: #dcfce7;
+      color: #166534;
+    }
+  </style>
+</head>
+
+<body>
+
+<div class="container">
+
+  <h2>📷 ถ่ายภาพยืนยันการเข้าฝึก</h2>
+
+  <p class="description">
+    กรุณาเปิดกล้องและถ่ายภาพใบหน้าให้ชัดเจน
+    เมื่อยืนยันภาพแล้ว ระบบจะส่งภาพกลับไปยังหน้าลงทะเบียน
+  </p>
+
+  <video id="video"
+         autoplay
+         playsinline
+         muted
+         class="hidden"></video>
+
+  <canvas id="canvas" class="hidden"></canvas>
+
+  <div id="status">
+    กรุณากดปุ่มเปิดกล้องเพื่อเริ่มใช้งาน
+  </div>
+
+  <button id="openBtn"
+          class="primary"
+          onclick="startCamera()">
+    เปิดกล้อง
+  </button>
+
+  <button id="captureBtn"
+          class="success hidden"
+          onclick="capturePhoto()">
+    ถ่ายภาพ
+  </button>
+
+  <button id="retakeBtn"
+          class="secondary hidden"
+          onclick="retakePhoto()">
+    ถ่ายใหม่
+  </button>
+
+  <button id="confirmBtn"
+          class="success hidden"
+          onclick="confirmPhoto()">
+    ยืนยันและส่งภาพกลับ
+  </button>
+
+  <button id="closeBtn"
+          class="secondary"
+          onclick="closeCameraPage()">
+    ปิดหน้าต่าง
+  </button>
+
+</div>
+
+<script>
+  let cameraStream = null;
+  let photoData = null;
+
+  // รับรหัสชั่วคราวจากหน้า Training
+  const params = new URLSearchParams(
+    window.location.hash.substring(1)
+  );
+
+  const cameraNonce = params.get('nonce') || '';
+
+  function setStatus(message, type) {
+    const box = document.getElementById('status');
+
+    box.textContent = message;
+    box.className = type || '';
+  }
+
+  // แจ้งหน้า Training ว่าหน้ากล้องพร้อมแล้ว
+  function notifyReady() {
+    if (!window.opener || !cameraNonce) {
+      setStatus(
+        'กรุณาเปิดหน้านี้จากปุ่มเปิดกล้องในระบบลงทะเบียนฝึก',
+        'error'
+      );
+      return;
+    }
+
+    window.opener.postMessage({
+      type: 'TRAINING_CAMERA_READY',
+      nonce: cameraNonce
+    }, '*');
+  }
+
+  async function startCamera() {
+    try {
+      stopCamera();
+
+      if (!navigator.mediaDevices ||
+          !navigator.mediaDevices.getUserMedia) {
+        throw new Error(
+          'เบราว์เซอร์ไม่รองรับการเปิดกล้อง'
+        );
+      }
+
+      cameraStream =
+        await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: 'user',
+            width: { ideal: 1280 },
+            height: { ideal: 720 }
+          },
+          audio: false
+        });
+
+      const video = document.getElementById('video');
+
+      video.srcObject = cameraStream;
+      await video.play();
+
+      video.classList.remove('hidden');
+
+      document.getElementById('canvas')
+        .classList.add('hidden');
+
+      document.getElementById('openBtn')
+        .classList.add('hidden');
+
+      document.getElementById('captureBtn')
+        .classList.remove('hidden');
+
+      document.getElementById('retakeBtn')
+        .classList.add('hidden');
+
+      document.getElementById('confirmBtn')
+        .classList.add('hidden');
+
+      setStatus(
+        'เปิดกล้องแล้ว กรุณาจัดภาพใบหน้าให้ชัดเจน',
+        'success'
+      );
+
+    } catch (error) {
+      stopCamera();
+
+      setStatus(
+        'เปิดกล้องไม่สำเร็จ: ' +
+        error.name + ' - ' + error.message,
+        'error'
+      );
+    }
+  }
+
+  function capturePhoto() {
+    const video = document.getElementById('video');
+    const canvas = document.getElementById('canvas');
+
+    if (!video.videoWidth || !video.videoHeight) {
+      setStatus('กล้องยังไม่พร้อม กรุณารอสักครู่', 'error');
+      return;
+    }
+
+    let width = video.videoWidth;
+    let height = video.videoHeight;
+
+    // จำกัดขนาดภาพเพื่อให้ส่งกลับได้รวดเร็ว
+    const maxWidth = 1280;
+
+    if (width > maxWidth) {
+      height = Math.round(height * maxWidth / width);
+      width = maxWidth;
+    }
+
+    canvas.width = width;
+    canvas.height = height;
+
+    const context = canvas.getContext('2d');
+
+    context.drawImage(video, 0, 0, width, height);
+
+    photoData = canvas.toDataURL('image/jpeg', 0.80);
+
+    video.classList.add('hidden');
+    canvas.classList.remove('hidden');
+
+    stopCamera();
+
+    document.getElementById('captureBtn')
+      .classList.add('hidden');
+
+    document.getElementById('retakeBtn')
+      .classList.remove('hidden');
+
+    document.getElementById('confirmBtn')
+      .classList.remove('hidden');
+
+    setStatus('ถ่ายภาพเรียบร้อยแล้ว กรุณาตรวจสอบภาพ', 'success');
+  }
+
+  function retakePhoto() {
+    photoData = null;
+
+    document.getElementById('canvas')
+      .classList.add('hidden');
+
+    document.getElementById('retakeBtn')
+      .classList.add('hidden');
+
+    document.getElementById('confirmBtn')
+      .classList.add('hidden');
+
+    startCamera();
+  }
+
+  function confirmPhoto() {
+    if (!photoData) {
+      setStatus('ไม่พบภาพ กรุณาถ่ายภาพใหม่', 'error');
+      return;
+    }
+
+    if (!window.opener || window.opener.closed) {
+      setStatus(
+        'ไม่พบหน้าระบบลงทะเบียน กรุณากลับไปเปิดกล้องจากระบบอีกครั้ง',
+        'error'
+      );
+      return;
+    }
+
+    if (!cameraNonce) {
+      setStatus('ไม่พบรหัสเชื่อมต่อ กรุณาเปิดกล้องใหม่', 'error');
+      return;
+    }
+
+    document.getElementById('confirmBtn').disabled = true;
+
+    window.opener.postMessage({
+      type: 'TRAINING_CAMERA_PHOTO',
+      nonce: cameraNonce,
+      data: photoData,
+      mimeType: 'image/jpeg'
+    }, '*');
+
+    setStatus(
+      'ส่งภาพกลับแล้ว กรุณารอสักครู่...',
+      'success'
+    );
+
+    setTimeout(function() {
+      window.close();
+    }, 1000);
+  }
+
+  function stopCamera() {
+    if (cameraStream) {
+      cameraStream.getTracks().forEach(track => track.stop());
+      cameraStream = null;
+    }
+
+    document.getElementById('video').srcObject = null;
+  }
+
+  function closeCameraPage() {
+    stopCamera();
+    window.close();
+  }
+
+  window.addEventListener('beforeunload', stopCamera);
+
+  window.addEventListener('load', notifyReady);
+</script>
+
+</body>
+</html>
