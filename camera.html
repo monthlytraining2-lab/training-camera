@@ -3,8 +3,7 @@
 <html lang="th">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport"
-        content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
 
   <title>กล้องถ่ายภาพยืนยันการเข้าฝึก</title>
 
@@ -15,7 +14,7 @@
 
     body {
       margin: 0;
-      padding: 20px;
+      padding: 16px;
       font-family: Arial, sans-serif;
       background: #f1f5f9;
       color: #1e293b;
@@ -93,8 +92,9 @@
       background: #eff6ff;
       color: #1d4ed8;
       font-size: 14px;
-      line-height: 1.5;
+      line-height: 1.6;
       overflow-wrap: anywhere;
+      text-align: left;
     }
 
     #status.error {
@@ -105,6 +105,17 @@
     #status.success {
       background: #dcfce7;
       color: #166534;
+    }
+
+    #browserGuide {
+      margin-top: 14px;
+      padding: 14px;
+      border-radius: 10px;
+      background: #fff7ed;
+      color: #9a3412;
+      font-size: 14px;
+      line-height: 1.7;
+      text-align: left;
     }
   </style>
 </head>
@@ -131,6 +142,8 @@
   <div id="status">
     กรุณากดปุ่มเปิดกล้องเพื่อเริ่มใช้งาน
   </div>
+
+  <div id="browserGuide" class="hidden"></div>
 
   <button id="openBtn"
           class="primary"
@@ -167,6 +180,31 @@
 <script>
   let cameraStream = null;
   let photoData = null;
+  let cameraReady = false;
+
+  // ตรวจสอบประเภทอุปกรณ์และเบราว์เซอร์
+  const userAgent = navigator.userAgent || '';
+
+  const isLineBrowser =
+    /Line\/|LIFF/i.test(userAgent);
+
+  const isAndroid =
+    /Android/i.test(userAgent);
+
+  const isIOS =
+    /iPhone|iPad|iPod/i.test(userAgent) ||
+    (
+      navigator.platform === 'MacIntel' &&
+      navigator.maxTouchPoints > 1
+    );
+
+  const isChrome =
+    /Chrome|CriOS/i.test(userAgent) &&
+    !/Edg|OPR/i.test(userAgent);
+
+  const isSafari =
+    /Safari/i.test(userAgent) &&
+    !/Chrome|CriOS|Edg|OPR/i.test(userAgent);
 
   // รับรหัสชั่วคราวจากหน้า Training
   const params = new URLSearchParams(
@@ -182,42 +220,149 @@
     box.className = type || '';
   }
 
+  function showBrowserGuide() {
+    const guide = document.getElementById('browserGuide');
+
+    guide.classList.remove('hidden');
+
+    let message = '';
+
+    if (isAndroid) {
+      message =
+        '<b>วิธีใช้งานบน Android</b><br>' +
+        '1. กลับไปยังหน้าระบบลงทะเบียนใน LINE<br>' +
+        '2. กดเมนูจุดสามจุด หรือเมนูเพิ่มเติมของ LINE<br>' +
+        '3. เลือกเปิดด้วยเบราว์เซอร์ภายนอก หรือ Open in Browser<br>' +
+        '4. เลือก Google Chrome<br>' +
+        '5. เข้าสู่ระบบใหม่และดำเนินการลงทะเบียนจนเสร็จใน Chrome';
+    } else if (isIOS) {
+      message =
+        '<b>วิธีใช้งานบน iPhone / iPad</b><br>' +
+        '1. กลับไปยังหน้าระบบลงทะเบียนใน LINE<br>' +
+        '2. กดเมนูจุดสามจุด หรือเมนูเพิ่มเติมของ LINE<br>' +
+        '3. เลือกเปิดด้วยเบราว์เซอร์ภายนอก หรือ Open in Browser<br>' +
+        '4. เลือก Safari<br>' +
+        '5. เข้าสู่ระบบใหม่และดำเนินการลงทะเบียนจนเสร็จใน Safari';
+    } else {
+      message =
+        '<b>วิธีใช้งาน</b><br>' +
+        'กรุณากลับไปยังหน้าระบบลงทะเบียน แล้วเลือกเปิดผ่านเบราว์เซอร์ภายนอก เช่น Chrome หรือ Safari จากนั้นเข้าสู่ระบบใหม่';
+    }
+
+    guide.innerHTML = message;
+
+    document.getElementById('openBtn')
+      .classList.add('hidden');
+
+    document.getElementById('captureBtn')
+      .classList.add('hidden');
+
+    document.getElementById('retakeBtn')
+      .classList.add('hidden');
+
+    document.getElementById('confirmBtn')
+      .classList.add('hidden');
+  }
+
   // แจ้งหน้า Training ว่าหน้ากล้องพร้อมแล้ว
   function notifyReady() {
-    if (!window.opener || !cameraNonce) {
+
+    // ไม่อนุญาตให้ใช้กล้องจาก LINE In-app Browser
+    // ให้เปิดระบบลงทะเบียนทั้งระบบใน Chrome หรือ Safari
+    if (isLineBrowser) {
       setStatus(
-        'กรุณาเปิดหน้านี้จากปุ่มเปิดกล้องในระบบลงทะเบียนฝึก',
+        'ตรวจพบว่ากำลังเปิดผ่าน LINE กรุณาเปิดระบบลงทะเบียนทั้งหมดผ่านเบราว์เซอร์ภายนอก',
+        'error'
+      );
+
+      showBrowserGuide();
+      return;
+    }
+
+    if (!window.isSecureContext) {
+      setStatus(
+        'การเชื่อมต่อไม่ปลอดภัย กรุณาเปิดผ่าน HTTPS',
         'error'
       );
       return;
     }
 
+    if (!window.opener || !cameraNonce) {
+      setStatus(
+        'ไม่พบการเชื่อมต่อกับหน้าระบบลงทะเบียน กรุณาเปิดกล้องจากปุ่มในระบบลงทะเบียนอีกครั้ง',
+        'error'
+      );
+      return;
+    }
+
+    cameraReady = true;
+
     window.opener.postMessage({
       type: 'TRAINING_CAMERA_READY',
       nonce: cameraNonce
     }, '*');
+
+    setStatus(
+      'เชื่อมต่อกับระบบลงทะเบียนแล้ว กรุณากดเปิดกล้อง',
+      'success'
+    );
   }
 
   async function startCamera() {
+
+    if (!cameraReady) {
+      setStatus(
+        'ยังไม่ได้เชื่อมต่อกับหน้าระบบลงทะเบียน กรุณาเปิดกล้องจากระบบลงทะเบียนอีกครั้ง',
+        'error'
+      );
+      return;
+    }
+
     try {
       stopCamera();
 
       if (!navigator.mediaDevices ||
           !navigator.mediaDevices.getUserMedia) {
         throw new Error(
-          'เบราว์เซอร์ไม่รองรับการเปิดกล้อง'
+          'เบราว์เซอร์นี้ไม่รองรับการเปิดกล้อง กรุณาใช้ Chrome หรือ Safari'
         );
       }
 
-      cameraStream =
-        await navigator.mediaDevices.getUserMedia({
-          video: {
-            facingMode: 'user',
-            width: { ideal: 1280 },
-            height: { ideal: 720 }
-          },
-          audio: false
-        });
+      setStatus(
+        'กำลังขออนุญาตใช้งานกล้อง กรุณารอสักครู่',
+        ''
+      );
+
+      // ขอใช้กล้องหน้าเป็นอันดับแรก
+      try {
+        cameraStream =
+          await navigator.mediaDevices.getUserMedia({
+            video: {
+              facingMode: { ideal: 'user' },
+              width: { ideal: 1280 },
+              height: { ideal: 720 }
+            },
+            audio: false
+          });
+
+      } catch (firstError) {
+
+        // หากอุปกรณ์ไม่รองรับการกำหนดกล้องหน้า
+        // ให้ลองเปิดกล้องด้วยการตั้งค่าทั่วไป
+        if (
+          firstError.name === 'OverconstrainedError' ||
+          firstError.name === 'ConstraintNotSatisfiedError' ||
+          firstError.name === 'NotFoundError'
+        ) {
+          cameraStream =
+            await navigator.mediaDevices.getUserMedia({
+              video: true,
+              audio: false
+            });
+        } else {
+          throw firstError;
+        }
+      }
 
       const video = document.getElementById('video');
 
@@ -241,19 +386,45 @@
       document.getElementById('confirmBtn')
         .classList.add('hidden');
 
+      document.getElementById('browserGuide')
+        .classList.add('hidden');
+
+      photoData = null;
+
       setStatus(
         'เปิดกล้องแล้ว กรุณาจัดภาพใบหน้าให้ชัดเจน',
         'success'
       );
 
     } catch (error) {
+
       stopCamera();
 
-      setStatus(
+      let message =
         'เปิดกล้องไม่สำเร็จ: ' +
-        error.name + ' - ' + error.message,
-        'error'
-      );
+        error.name + ' - ' + error.message;
+
+      if (
+        error.name === 'NotAllowedError' ||
+        error.name === 'PermissionDeniedError' ||
+        error.name === 'SecurityError'
+      ) {
+        message =
+          'ไม่ได้รับอนุญาตให้ใช้กล้อง กรุณาอนุญาตสิทธิ์กล้องให้เบราว์เซอร์ในการตั้งค่าเว็บไซต์ แล้วลองใหม่อีกครั้ง';
+      } else if (error.name === 'NotFoundError') {
+        message =
+          'ไม่พบกล้องในอุปกรณ์ กรุณาตรวจสอบกล้องและลองใหม่';
+      } else if (error.name === 'NotReadableError') {
+        message =
+          'กล้องกำลังถูกใช้งานโดยแอปอื่น กรุณาปิดแอปที่ใช้กล้องแล้วลองใหม่';
+      }
+
+      setStatus(message, 'error');
+
+      document.getElementById('openBtn')
+        .classList.remove('hidden');
+
+      console.error('Camera error:', error);
     }
   }
 
@@ -262,7 +433,10 @@
     const canvas = document.getElementById('canvas');
 
     if (!video.videoWidth || !video.videoHeight) {
-      setStatus('กล้องยังไม่พร้อม กรุณารอสักครู่', 'error');
+      setStatus(
+        'กล้องยังไม่พร้อม กรุณารอสักครู่',
+        'error'
+      );
       return;
     }
 
@@ -300,7 +474,10 @@
     document.getElementById('confirmBtn')
       .classList.remove('hidden');
 
-    setStatus('ถ่ายภาพเรียบร้อยแล้ว กรุณาตรวจสอบภาพ', 'success');
+    setStatus(
+      'ถ่ายภาพเรียบร้อยแล้ว กรุณาตรวจสอบภาพก่อนยืนยัน',
+      'success'
+    );
   }
 
   function retakePhoto() {
@@ -319,25 +496,35 @@
   }
 
   function confirmPhoto() {
+
     if (!photoData) {
-      setStatus('ไม่พบภาพ กรุณาถ่ายภาพใหม่', 'error');
+      setStatus(
+        'ไม่พบภาพ กรุณาถ่ายภาพใหม่',
+        'error'
+      );
       return;
     }
 
     if (!window.opener || window.opener.closed) {
       setStatus(
-        'ไม่พบหน้าระบบลงทะเบียน กรุณากลับไปเปิดกล้องจากระบบอีกครั้ง',
+        'ไม่พบหน้าระบบลงทะเบียน กรุณาเปิดระบบลงทะเบียนใหม่',
         'error'
       );
       return;
     }
 
     if (!cameraNonce) {
-      setStatus('ไม่พบรหัสเชื่อมต่อ กรุณาเปิดกล้องใหม่', 'error');
+      setStatus(
+        'ไม่พบรหัสเชื่อมต่อ กรุณาเปิดกล้องใหม่',
+        'error'
+      );
       return;
     }
 
-    document.getElementById('confirmBtn').disabled = true;
+    const confirmBtn =
+      document.getElementById('confirmBtn');
+
+    confirmBtn.disabled = true;
 
     window.opener.postMessage({
       type: 'TRAINING_CAMERA_PHOTO',
@@ -347,7 +534,7 @@
     }, '*');
 
     setStatus(
-      'ส่งภาพกลับแล้ว กรุณารอสักครู่...',
+      'ส่งภาพกลับไปยังระบบลงทะเบียนแล้ว กรุณารอสักครู่',
       'success'
     );
 
@@ -362,7 +549,11 @@
       cameraStream = null;
     }
 
-    document.getElementById('video').srcObject = null;
+    const video = document.getElementById('video');
+
+    if (video) {
+      video.srcObject = null;
+    }
   }
 
   function closeCameraPage() {
@@ -373,6 +564,7 @@
   window.addEventListener('beforeunload', stopCamera);
 
   window.addEventListener('load', notifyReady);
+
 </script>
 
 </body>
